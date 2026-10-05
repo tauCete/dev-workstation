@@ -1,117 +1,196 @@
+# Version: 20261005.001
 # Language: PowerShell
-# Description: Reusable script to provision a new developer workstation on Windows.
+# Description: Hardened script to provision a new developer workstation on Windows.
 
-# Set up logging
-$logDir = "C:\t\logs"
-if (-not (Test-Path $logDir)) {
-    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+$ErrorActionPreference = "Stop"
+
+# Use a more reliable log path and fallback if the default path is unavailable
+$preferredLogDir = "C:\t\logs"
+$logDir = $preferredLogDir
+
+try {
+    if (-not (Test-Path $logDir)) {
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    }
+    if (-not (Test-Path $logDir)) {
+        throw "Unable to create log directory: $logDir"
+    }
+    $testFile = Join-Path $logDir "write-test-$PID.txt"
+    Set-Content -Path $testFile -Value "log test" -Force
+    Remove-Item $testFile -Force
+} catch {
+    $fallbackLogDir = Join-Path $env:TEMP "dev-workstation-logs"
+    if (-not (Test-Path $fallbackLogDir)) {
+        New-Item -ItemType Directory -Path $fallbackLogDir -Force | Out-Null
+    }
+    $logDir = $fallbackLogDir
 }
-$logFile = "$logDir\install-$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss').log"
+
+$logFile = Join-Path $logDir ("install-" + (Get-Date -Format "yyyy-MM-dd_HH-mm-ss") + ".log")
 
 function Write-Log {
     param(
         [string]$Message,
         [string]$Level = "INFO"
     )
+
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logMessage = "[$timestamp] [$Level] $Message"
-    Add-Content -Path $logFile -Value $logMessage
+
+    try {
+        Add-Content -Path $logFile -Value $logMessage
+    } catch {
+        # Best effort fallback if logging fails for any reason
+        Write-Host $logMessage
+    }
+
     Write-Host $logMessage
 }
 
-# Ensure script runs as administrator
-If (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
-{
-    Write-Host "This script must be run as Administrator." -ForegroundColor Red
-    Exit 1
+function Ensure-Admin {
+    $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+    $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    if (-not $isAdmin) {
+        Write-Host "This script must be run as Administrator." -ForegroundColor Red
+        exit 1
+    }
 }
 
-# Validate logging capability before proceeding
-Write-Host "Validating logging capability..." -ForegroundColor Cyan
-try {
-    $testLogFile = "$logDir\test-$(Get-Random).log"
-    "Test log entry" | Out-File -FilePath $testLogFile -Encoding UTF8
-    Remove-Item -Path $testLogFile -Force
-    Write-Host "✓ Logging validation successful." -ForegroundColor Green
-} catch {
-    Write-Host "✗ Failed to validate logging capability." -ForegroundColor Red
-    Write-Host "Error: $_" -ForegroundColor Red
-    Write-Host "Log directory: $logDir" -ForegroundColor Red
-    Write-Host "Please ensure the directory exists and you have write permissions." -ForegroundColor Red
-    Exit 1
+function Ensure-Winget {
+    $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $wingetCmd) {
+        Write-Log "winget was not found on PATH. Please install App Installer/Winget and try again." -Level "ERROR"
+        exit 1
+    }
 }
+
+function Test-PackageInstalled {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackageId
+    )
+
+    $output = & winget list --id $PackageId --exact --accept-source-agreements 2>&1
+
+    # winget often returns exit code 0 even when no package is found; parse the output instead
+    $match = ($output | Out-String) -match "(?im)^\s*$([regex]::Escape($PackageId))\s+"
+
+    return $match
+}
+
+function Install-PackageWithRetry {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackageId,
+        [Parameter(Mandatory = $true)][string]$PackageName,
+        [int]$MaxAttempts = 3
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        Write-Log "Checking installation status for $PackageName (ID: $PackageId)..." -Level "DEBUG"
+
+        if (Test-PackageInstalled -PackageId $PackageId) {
+            Write-Log "$PackageName is already installed (skipped)." -Level "INFO"
+            return $true
+        }
+
+        Write-Log "Installing $PackageName (attempt $attempt/$MaxAttempts)..." -Level "INFO"
+        Write-Host "Installing $PackageName..." -ForegroundColor Green
+
+        $installStart = Get-Date
+
+        try {
+            & winget install `
+                --id $PackageId `
+                --exact `
+                --silent `
+                --accept-package-agreements `
+                --accept-source-agreements `
+                --disable-interactivity `
+                --source winget 2>&1 | Tee-Object -Variable installOutput
+
+            $exitCode = $LASTEXITCODE
+
+            $duration = (Get-Date -Subtract $installStart).TotalSeconds
+
+            if ($exitCode -eq 0) {
+                if (Test-PackageInstalled -PackageId $PackageId) {
+                    Write-Log "Successfully installed $PackageName in $([math]::Round($duration, 2))s" -Level "INFO"
+                    return $true
+                }
+
+                Write-Log "winget reported success for $PackageName, but package was not detected afterward." -Level "WARNING"
+            } else {
+                Write-Log "Install attempt failed for $PackageName with exit code $exitCode" -Level "ERROR"
+                if ($installOutput) {
+                    Write-Log ($installOutput | Out-String) -Level "ERROR"
+                }
+            }
+        } catch {
+            Write-Log "Exception during install of $PackageName: $($_.Exception.Message)" -Level "ERROR"
+        }
+
+        if ($attempt -lt $MaxAttempts) {
+            $sleepSeconds = 5 * $attempt
+            Write-Log "Retrying $PackageName in ${sleepSeconds}s..." -Level "WARNING"
+            Start-Sleep -Seconds $sleepSeconds
+        } else {
+            Write-Log "Failed to install $PackageName after $MaxAttempts attempts." -Level "ERROR"
+            return $false
+        }
+    }
+
+    return $false
+}
+
+function Show-Summary {
+    param(
+        [System.Collections.Generic.List[object]]$Results
+    )
+
+    $successful = ($Results | Where-Object { $_.Succeeded -eq $true }).Count
+    $failed = ($Results | Where-Object { $_.Succeeded -eq $false }).Count
+
+    Write-Log "Installation summary: $successful succeeded, $failed failed." -Level "INFO"
+    Write-Host ""
+    Write-Host "Installation summary: $successful succeeded, $failed failed." -ForegroundColor Cyan
+}
+
+# Main flow
+Ensure-Admin
+Ensure-Winget
 
 Write-Log "Starting developer workstation provisioning..." -Level "INFO"
 Write-Log "Log file: $logFile" -Level "INFO"
 
-# Function to install a package using winget if not already installed
-function Install-PackageIfMissing {
-    param(
-        [string]$PackageId,
-        [string]$PackageName
-    )
-    
-    Write-Log "Checking installation status for $PackageName (ID: $PackageId)..." -Level "DEBUG"
-    
-    $packageInstalled = winget list --id $PackageId 2>&1 | Select-String $PackageId
-    if (-not $packageInstalled) {
-        Write-Log "Installing $PackageName..." -Level "INFO"
-        Write-Host "Installing $PackageName..." -ForegroundColor Green
-        
-        $installStart = Get-Date
-        try {
-            winget install --id $PackageId --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
-            $installEnd = Get-Date
-            $duration = ($installEnd - $installStart).TotalSeconds
-            Write-Log "Successfully installed $PackageName in $($duration)s" -Level "INFO"
-        } catch {
-            Write-Log "Failed to install $PackageName`: $_" -Level "ERROR"
-            Write-Host "Error installing $PackageName`: $_" -ForegroundColor Red
-        }
-    } else {
-        Write-Log "$PackageName is already installed (skipped)." -Level "INFO"
-        Write-Host "$PackageName is already installed." -ForegroundColor Yellow
-    }
-}
-
 # List of tools to install via winget
+# Keep these explicitly version-stable and well-known IDs.
 $tools = @(
-    @{Id="Microsoft.VisualStudioCode"; Name="Visual Studio Code"},
-    @{Id="Git.Git"; Name="Git"},
-    @{Id="Python.Python.3"; Name="Python 3"},
-    @{Id="NodeJS.NodeJS"; Name="Node.js"}
-# manually removed postman and docker for now. use insomnia instead of Postman, always
-#    @{Id="Postman.Postman"; Name="Postman"},
-#    @{Id="Docker.DockerDesktop"; Name="Docker Desktop"}
+    @{ Id = "Microsoft.VisualStudioCode"; Name = "Visual Studio Code" },
+    @{ Id = "Git.Git"; Name = "Git" },
+    @{ Id = "Python.Python.3"; Name = "Python 3" },
+    @{ Id = "NodeJS.NodeJS"; Name = "Node.js" }
 )
 
-# Future consideration.  Consider using Chocolatey instead of winget for better enterprise features.
-# for now as this is a personal single person audience staying with winget.
-
+# Future consideration: consider using Chocolatey for enterprise environments.
+# For now, staying with winget for personal single-person use.
 Write-Log "Processing $($tools.Count) tools for installation..." -Level "INFO"
 
-# Loop through tools and install each one
-$installCount = 0
+$results = New-Object System.Collections.Generic.List[object]
+
 foreach ($tool in $tools) {
-    $installCount++
+    $installCount = $results.Count + 1
     Write-Log "[$installCount/$($tools.Count)] Processing $($tool.Name)..." -Level "INFO"
-    Install-PackageIfMissing -PackageId $tool.Id -PackageName $tool.Name
+
+    $succeeded = Install-PackageWithRetry -PackageId $tool.Id -PackageName $tool.Name -MaxAttempts 3
+    $results.Add([pscustomobject]@{
+        Name      = $tool.Name
+        PackageId = $tool.Id
+        Succeeded = $succeeded
+    })
 }
 
-# Optional: Download VS Code installer if winget is not used
-# $vsCodeInstallerUrl = "https://aka.ms/win32-x64-user-stable"
-# $localInstallerPath = "$env:TEMP\VSCodeSetup.exe"
-#
-# if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
-#     Write-Host "Downloading VS Code installer..." -ForegroundColor Green
-#     Invoke-WebRequest -Uri $vsCodeInstallerUrl -OutFile $localInstallerPath
-#     Start-Process -FilePath $localInstallerPath -ArgumentList "/verysilent /mergetasks=!runcode" -Wait
-#     Remove-Item $localInstallerPath
-# } else {
-#     Write-Host "VS Code already installed." -ForegroundColor Yellow
-# }
+Show-Summary -Results $results
 
-# Finish message
 Write-Log "Developer workstation setup complete!" -Level "INFO"
 Write-Host "Developer workstation setup complete!" -ForegroundColor Cyan
 Write-Host "Log file saved to: $logFile" -ForegroundColor Cyan
