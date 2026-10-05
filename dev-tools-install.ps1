@@ -2,9 +2,9 @@
 # Description: Reusable script to provision a new developer workstation on Windows.
 
 # Set up logging
-$logDir = "$env:TEMP\DevWorkstationLogs"
+$logDir = "C:\t\logs"
 if (-not (Test-Path $logDir)) {
-    New-Item -ItemType Directory -Path $logDir | Out-Null
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 }
 $logFile = "$logDir\install-$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss').log"
 
