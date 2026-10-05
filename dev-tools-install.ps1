@@ -26,6 +26,21 @@ If (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Exit 1
 }
 
+# Validate logging capability before proceeding
+Write-Host "Validating logging capability..." -ForegroundColor Cyan
+try {
+    $testLogFile = "$logDir\test-$(Get-Random).log"
+    "Test log entry" | Out-File -FilePath $testLogFile -Encoding UTF8
+    Remove-Item -Path $testLogFile -Force
+    Write-Host "✓ Logging validation successful." -ForegroundColor Green
+} catch {
+    Write-Host "✗ Failed to validate logging capability." -ForegroundColor Red
+    Write-Host "Error: $_" -ForegroundColor Red
+    Write-Host "Log directory: $logDir" -ForegroundColor Red
+    Write-Host "Please ensure the directory exists and you have write permissions." -ForegroundColor Red
+    Exit 1
+}
+
 Write-Log "Starting developer workstation provisioning..." -Level "INFO"
 Write-Log "Log file: $logFile" -Level "INFO"
 
