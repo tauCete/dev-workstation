@@ -43,17 +43,17 @@ foreach ($tool in $tools) {
 }
 
 # Optional: Download VS Code installer if winget is not used
-$vsCodeInstallerUrl = "https://aka.ms/win32-x64-user-stable"
-$localInstallerPath = "$env:TEMP\VSCodeSetup.exe"
-
-if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
-    Write-Host "Downloading VS Code installer..." -ForegroundColor Green
-    Invoke-WebRequest -Uri $vsCodeInstallerUrl -OutFile $localInstallerPath
-    Start-Process -FilePath $localInstallerPath -ArgumentList "/verysilent /mergetasks=!runcode" -Wait
-    Remove-Item $localInstallerPath
-} else {
-    Write-Host "VS Code already installed." -ForegroundColor Yellow
-}
+# $vsCodeInstallerUrl = "https://aka.ms/win32-x64-user-stable"
+# $localInstallerPath = "$env:TEMP\VSCodeSetup.exe"
+#
+# if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
+#     Write-Host "Downloading VS Code installer..." -ForegroundColor Green
+#     Invoke-WebRequest -Uri $vsCodeInstallerUrl -OutFile $localInstallerPath
+#     Start-Process -FilePath $localInstallerPath -ArgumentList "/verysilent /mergetasks=!runcode" -Wait
+#     Remove-Item $localInstallerPath
+# } else {
+#     Write-Host "VS Code already installed." -ForegroundColor Yellow
+# }
 
 # Finish message
 Write-Host "Developer workstation setup complete!" -ForegroundColor Cyan
