@@ -5,6 +5,20 @@ Scripts and tools for provisioning and deploying a developer workstation.
 
 `dev-tools-install.ps1` is a reusable PowerShell script for setting up a new Windows developer workstation.
 
+### Execute on a new developer workstation
+
+1. **Open PowerShell as Administrator**
+   - Press `Win + X` and select "Windows PowerShell (Admin)" or "Terminal (Admin)"
+   - Alternatively, search for "PowerShell" in the Start menu, right-click it, and select "Run as administrator"
+
+2. **Copy and paste the following command:**
+
+```powershell
+iex (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/tauCete/dev-workstation/main/dev-tools-install.ps1')
+```
+
+3. **Press Enter** and wait for the installation to complete. The script will log all actions to `C:\t\logs\`.
+
 ### What it does
 - Verifies the script is running with Administrator privileges.
 - Creates a timestamped log file under `C:\t\logs`.
