@@ -126,7 +126,8 @@ function Install-PackageWithRetry {
                 }
             }
         } catch {
-            Write-Log "Exception during install of $PackageName: $($_.Exception.Message)" -Level "ERROR"
+            $exceptionMsg = $PSItem.Exception.Message
+            Write-Log "Exception during install of $PackageName`: $exceptionMsg" -Level "ERROR"
         }
 
         if ($attempt -lt $MaxAttempts) {
