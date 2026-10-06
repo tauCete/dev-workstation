@@ -1,4 +1,4 @@
-# Version: 20261005.002
+# Version: 20261005.003
 # Language: PowerShell
 # Description: Hardened script to provision a new developer workstation on Windows.
 
@@ -169,7 +169,8 @@ $tools = @(
     @{ Id = "Microsoft.VisualStudioCode"; Name = "Visual Studio Code" },
     @{ Id = "Git.Git"; Name = "Git" },
     @{ Id = "Python.Python.3"; Name = "Python 3" },
-    @{ Id = "NodeJS.NodeJS"; Name = "Node.js" }
+    @{ Id = "NodeJS.NodeJS"; Name = "Node.js" },
+    @{ Id = "Obsidian.Obsidian"; Name = "Obsidian" }
 )
 
 # Future consideration: consider using Chocolatey for enterprise environments.
