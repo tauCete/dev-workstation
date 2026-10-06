@@ -1,4 +1,4 @@
-# Version: 20261005.001
+# Version: 20261005.002
 # Language: PowerShell
 # Description: Hardened script to provision a new developer workstation on Windows.
 
@@ -110,7 +110,7 @@ function Install-PackageWithRetry {
 
             $exitCode = $LASTEXITCODE
 
-            $duration = (Get-Date -Subtract $installStart).TotalSeconds
+            $duration = ((Get-Date) - $installStart).TotalSeconds
 
             if ($exitCode -eq 0) {
                 if (Test-PackageInstalled -PackageId $PackageId) {
@@ -127,7 +127,7 @@ function Install-PackageWithRetry {
             }
         } catch {
             $exceptionMsg = $PSItem.Exception.Message
-            Write-Log "Exception during install of $PackageName`: $exceptionMsg" -Level "ERROR"
+            Write-Log "Exception during install of $PackageName - $exceptionMsg" -Level "ERROR"
         }
 
         if ($attempt -lt $MaxAttempts) {
